@@ -1,0 +1,61 @@
+{
+  "stations": [
+    {
+      "id": "A",
+      "name": "东沟"
+    },
+    {
+      "id": "B",
+      "name": "西坡"
+    },
+    {
+      "id": "C",
+      "name": "环形断面"
+    },
+    {
+      "id": "D",
+      "name": "下游出口"
+    }
+  ],
+  "edges": [
+    {
+      "id": "E-AB",
+      "from": "A",
+      "to": "B",
+      "lag_min": 0,
+      "weights": [
+        0.4,
+        0.6
+      ]
+    },
+    {
+      "id": "E-BC",
+      "from": "B",
+      "to": "C",
+      "lag_min": 0,
+      "weights": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "id": "E-CA",
+      "from": "C",
+      "to": "A",
+      "lag_min": 0,
+      "weights": [
+        0.3,
+        0.7
+      ]
+    },
+    {
+      "id": "E-CD",
+      "from": "C",
+      "to": "D",
+      "lag_min": 1,
+      "weights": [
+        1.0
+      ]
+    }
+  ]
+}

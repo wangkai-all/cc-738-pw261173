@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>河网卷积分析台 · 传播核 / 支流贡献 / 时滞校准</title>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("rivernet-theme");
+        if (!t && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) t = "dark";
+        if (t) document.documentElement.dataset.theme = t;
+      } catch (e) { /* localStorage 不可用时使用浅色默认 */ }
+    })();
+  </script>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌊</text></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" width="34" height="34" aria-hidden="true">
+        <path d="M3 20c4 0 4-4 8-4s4 4 8 4 4-4 10-4" fill="none" stroke="var(--series-1)" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M3 26c4 0 4-4 8-4s4 4 8 4 4-4 10-4" fill="none" stroke="var(--series-3)" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M3 14c4 0 4-4 8-4s4 4 8 4 4-4 10-4" fill="none" stroke="var(--series-7)" stroke-width="2.4" stroke-linecap="round" opacity=".7"/>
+      </svg>
+      <div>
+        <h1>河网卷积分析台</h1>
+        <p class="subtitle">离散传播核 · 滞后约束校准 · 按路径汇合 · 各站贡献分解</p>
+      </div>
+    </div>
+    <div class="top-controls">
+      <label class="field example-field">
+        <span class="field-label">内置样例</span>
+        <select id="exampleSelect" aria-label="选择内置样例"></select>
+      </label>
+      <button id="openExampleBtn" class="btn primary">打开样例</button>
+      <button id="importBtn" class="btn">导入 CSV / 河网</button>
+      <button id="themeToggle" class="btn icon" title="切换浅色 / 深色" aria-label="切换主题">◐</button>
+    </div>
+  </header>
+
+  <div class="disclaimer-bar">
+    <strong>虚构数据声明</strong>
+    <span>所有测站序列与河网均为人工虚构，仅用于卷积方法演示，<u>不用于任何真实水文预警或决策</u>。</span>
+  </div>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <section class="card">
+        <div class="card-head">
+          <h2>有向无环河网</h2>
+          <span id="dagBadge" class="badge"></span>
+        </div>
+        <div id="networkGraph" class="network-graph" role="img" aria-label="河网有向图"></div>
+        <div id="networkErrors"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>河段（点击选择）</h2></div>
+        <div id="edgeList" class="edge-list"></div>
+      </section>
+
+      <section class="card hint-card">
+        <div class="card-head"><h2>计算规则</h2></div>
+        <ul class="hint-list">
+          <li>传播核 <code>w<sub>ℓ</sub>≥0</code> 且 <code>Σw=1</code>，逐段卷积：<code>y(t)=Σ w<sub>ℓ</sub>x(t−ℓ)</code>。</li>
+          <li>校准只用所选<strong>校准期</strong>；评估期仅用于检验，不参与拟合。</li>
+          <li>缺测不补零：停测后给出<strong>完整可识别 / 部分残波 / 不可识别</strong>范围。</li>
+          <li>改一段核只失效并重算其下游；旧校准方案永久绑定各自数据切片。</li>
+        </ul>
+      </section>
+    </aside>
+
+    <section class="content">
+      <div id="globalError"></div>
+      <nav class="tabs" id="tabs" role="tablist">
+        <button class="tab active" data-tab="reach" role="tab">① 河段校准与过程线</button>
+        <button class="tab" data-tab="peaks" role="tab">② 洪峰移动</button>
+        <button class="tab" data-tab="contrib" role="tab">③ 各站贡献 / 下载</button>
+        <button class="tab" data-tab="residual" role="tab">④ 残差来源</button>
+        <button class="tab" data-tab="schemes" role="tab">⑤ 校准方案 <span id="schemeCount" class="count-pill">0</span></button>
+      </nav>
+
+      <div id="recomputeBanner" class="recompute-banner" hidden></div>
+
+      <section class="tab-panel active" id="panel-reach"></section>
+      <section class="tab-panel" id="panel-peaks" hidden></section>
+      <section class="tab-panel" id="panel-contrib" hidden></section>
+      <section class="tab-panel" id="panel-residual" hidden></section>
+      <section class="tab-panel" id="panel-schemes" hidden></section>
+    </section>
+  </main>
+
+  <!-- 导入对话框 -->
+  <div class="modal-backdrop" id="importModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="importTitle">
+      <div class="modal-head">
+        <h2 id="importTitle">导入测站 CSV 与河网 JSON</h2>
+        <button class="btn icon" id="importClose" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">支持宽表 <code>time,A,B,C</code> 或长表 <code>time,station,flow</code>；空值 / NA / NaN / -9999 识别为缺测，不会按 0 处理。河网 JSON 需含 <code>edges:[{id,from,to,lag_min,weights|lag_max}]</code>。</p>
+        <div class="import-grid">
+          <label class="field">项目名称
+            <input type="text" id="impName" value="导入的河网项目" />
+          </label>
+          <label class="field">采样间隔（分钟，留空则自动推断）
+            <input type="number" id="impDt" placeholder="例如 60" min="1" />
+          </label>
+        </div>
+        <div class="import-cols">
+          <div>
+            <div class="import-file-row">
+              <label class="btn small">选择 flows.csv<input type="file" id="flowsFile" accept=".csv,text/csv" hidden /></label>
+              <span id="flowsFileName" class="muted">未选择文件</span>
+            </div>
+            <textarea id="flowsCsv" class="code-area" placeholder="time,YL,QJ,SG ...&#10;2026-03-01T00:00,4.1,3.2,..."></textarea>
+          </div>
+          <div>
+            <div class="import-file-row">
+              <label class="btn small">选择 network.json<input type="file" id="netFile" accept=".json,application/json" hidden /></label>
+              <span id="netFileName" class="muted">未选择文件</span>
+            </div>
+            <textarea id="networkJson" class="code-area" placeholder='{"edges":[{"id":"e1","from":"A","to":"B","lag_min":0,"lag_max":3}]}'></textarea>
+          </div>
+        </div>
+        <div id="importError" class="inline-error" hidden></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="importCancel">取消</button>
+        <button class="btn primary" id="importSubmit">解析并打开</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tooltip" class="chart-tooltip" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="/charts.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
